@@ -32,45 +32,46 @@ Welcome to your new scheduler.
 
 ## Outstanding Features
 
-## rpeat-server
+## rpeat-server 🖥️
 This is where "jobs" live and run. A job is nothing more than a commands to run
 some user-defined specs, and a name.
 
 * Browser-based GUI for monitoring and control
 * Self-contained binary
-* Config driven - XML or JSON
+* Config driven - XML or JSON </>
 * Full API access for use *within* code if needed.
 * Granular permissioning at job level
 * Env variables
 * Magic DateEnv variables (e.g. CCYY-MM -> 20225-11)
 * Timezones
-* Custom calendars
-* One-second triggers
+* Custom calendars 📅
+* One-second triggers 🕒
 * Extended cron-syntax support including disjoint triggers
 * Start, stop, end and restart triggers.
 * Graph-based dependency triggers based on state
 * Retries
 * Automatic logging (including rotation)
-* Alerts via SMTP (e.g. gmail or outlook)
+* Job inspector 🔎
+* Alerts via SMTP (e.g. gmail or outlook ✉️ )
 * Templates - reuse code, environments, etc
 * Themes
-* TLS/SSL
+* TLS/SSL 🔐
 * Built in demo to get started.
 * and more!
 
-## rpeat-util
+## rpeat-util 🛠
 Unlike many other tools - rpeat was designed for the rigorous demands
 of running a hedge fund. This means correctness and transparency is paramount.
 We build an additional set of utilities to allow for validation and testing
 configurations before running.
 
-### validate
+### validate ✅ or ❌
 Run a series of tests against your configuration and reports any warnings or errors. These tests covers malformed schedules, missing calendars, incorrect timezones, missing dependencies, bad permissions - over 15 different factors
-### date
+### date 📅
 Test various options of dynamic (magic) DateEnv to calculate things like one quarter from today, or three days back using Monday to Friday calendar.
 ### next
 Calculate *next* trigger events taking into account timezones and calendars.
-### convert
+### convert 🔁
 Convert between XML and JSON job files
 ### jobstate
 Interogate the on-disk state
