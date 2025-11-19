@@ -1,4 +1,4 @@
-<img src="https://quantkiosk.com/assets/img/qk-logo.png" height="40" />
+<img src="https://rpeat.io/assets/img/logo-tm.png" height="40" />
 
 ## The Scheduler for Devs, Not DevOps
 
