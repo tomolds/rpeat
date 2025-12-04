@@ -147,7 +147,7 @@ type ServerConfig struct {
 	// TickMissedThresholdSecs is the additional buffer time before marking as missed (default: 1)
 	// Total threshold = TickIntervalSecs + TickMissedThresholdSecs
 	TickMissedThresholdSecs int `json:"TickMissedThresholdSecs,omitempty" xml:"TickMissedThresholdSecs,omitempty"`
-        HoldOnMissed     bool `json:"HoldOnMissed,omitempty" xml:"HoldOnMissed,omitempty"`
+        HoldOnMissed     bool `json:"HoldOnMissed" xml:"HoldOnMissed"`
 	Jobs             []Job      `json:"-"`
 }
 
@@ -911,7 +911,7 @@ func (job *Job) copyJobSpec(spec *JobSpec) {
 		job.Reset = spec.Reset
 	}
 	if spec.HoldOnMissed != nil {
-		job.HoldOnMissed = true
+		job.HoldOnMissed = *spec.HoldOnMissed
 	}
 	if spec.MaxRuntime != nil {
 		job.MaxRuntime = *spec.MaxRuntime
