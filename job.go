@@ -1183,7 +1183,7 @@ func (job *Job) setJobState(s JState) error {
 	return nil
 }
 func (job *Job) WaitForTrigger(stop <-chan bool) error {
-	ServerLogger.Printf(InfoColor, fmt.Sprintf("Waiting for Trigger %s:%s (%s)", job.JobUUID, job.Name, job.JobState))
+	ServerLogger.Printf(InfoColor, fmt.Sprintf("Waiting for Trigger %s:%s (%s) TickIntervalSecs: %d TickMissedThresholdSecs: %d HoldOnMissed: %t", job.JobUUID, job.Name, job.JobState, job.TickIntervalSecs, job.TickMissedThresholdSecs))
 	ticker := time.NewTicker(time.Second * time.Duration(job.TickIntervalSecs))
 	lastTick := time.Now().Unix()
 	for {
