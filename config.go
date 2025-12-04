@@ -147,7 +147,7 @@ type ServerConfig struct {
 	// TickMissedThresholdSecs is the additional buffer time before marking as missed (default: 1)
 	// Total threshold = TickIntervalSecs + TickMissedThresholdSecs
 	TickMissedThresholdSecs int `json:"TickMissedThresholdSecs,omitempty" xml:"TickMissedThresholdSecs,omitempty"`
-        HoldOnMissed     bool `json:"HoldOnMissed" xml:"HoldOnMissed"`
+	HoldOnMissed     bool `json:"HoldOnMissed" xml:"HoldOnMissed"`
 	Jobs             []Job      `json:"-"`
 }
 
