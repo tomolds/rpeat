@@ -368,7 +368,7 @@ func (server ServerConfig) startJobs(sd *ServerData) {
 	maxhistory := server.MaxHistory
 
 	ServerLogger.Printf("Loading Jobs configuration file: %s", config[0])
-	sjobs, jve := LoadConfig2(home, config, reloadjobs, keephistory, maxhistory, server.Name, serverkey, server.ApiKey, server.Logging, server.TickIntervalSecs, server.TickMissedThresholdSecs)
+	sjobs, jve := LoadConfig2(home, config, reloadjobs, keephistory, maxhistory, server.Name, serverkey, server.ApiKey, server.Logging)
 	jobs := sjobs.Jobs
 	job_order := sjobs.JobOrder
 	groups := sjobs.Groups
@@ -493,7 +493,7 @@ func (server *ServerConfig) reloadJobs(sd *ServerData) {
 	maxhistory := server.MaxHistory
 
 	ServerLogger.Printf("[reloadJobs] loading Jobs configuration file: %v", config)
-	sjobs, _ := LoadConfig2(home, config, reloadjobs, keephistory, maxhistory, server.Name, serverkey, server.ApiKey, server.Logging, server.TickIntervalSecs, server.TickMissedThresholdSecs)
+	sjobs, _ := LoadConfig2(home, config, reloadjobs, keephistory, maxhistory, server.Name, serverkey, server.ApiKey, server.Logging)
 
 	var wg sync.WaitGroup
 
