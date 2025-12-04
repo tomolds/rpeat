@@ -357,6 +357,11 @@ type JobSpec struct {
 	MissedReset *string `json:"MissedReset,omitempty"`
 	Reset       *Reset  `json:"Reset,omitempty"`
 
+	// HoldOnMissed controls whether jobs are automatically held when entering
+	// JMissedWarning state. If true (default), jobs are held. If false, jobs
+	// continue to be scheduled despite missed warnings.
+	HoldOnMissed *bool `json:"HoldOnMissed,omitempty" xml:"HoldOnMissed,omitempty"`
+
 	// HoldDuration is the duration a job is held before being released. This
 	// facilites temporary holds expressed like RetryWait. If empty, job is held
 	// indefinitely
@@ -503,6 +508,7 @@ type Job struct {
 
 	MissedReset  string `json:"MissedReset,omitempty"`
 	Reset        *Reset `json:"Reset,omitempty"`
+	HoldOnMissed bool   `json:"HoldOnMissed,omitempty"`
 	HoldDuration string `json:"HoldDuration"`
 	Reason       Reason `json:"Reason"`
 
@@ -523,6 +529,8 @@ type Job struct {
 	// status variables for API
 	ServerName         string       `json:"-"`
 	ServerKey          string       `json:"-"`
+	TickIntervalSecs        int    `json:"-"`
+	TickMissedThresholdSecs int    `json:"-"`
 	Pid                int          `json:"Pid,omitempty"`
 	Unscheduled        bool         `json:"Unscheduled,omitempty"`
 	Restarting         bool         `json:"Restarting,omitempty"`
@@ -1176,19 +1184,18 @@ func (job *Job) setJobState(s JState) error {
 }
 func (job *Job) WaitForTrigger(stop <-chan bool) error {
 	ServerLogger.Printf(InfoColor, fmt.Sprintf("Waiting for Trigger %s:%s (%s)", job.JobUUID, job.Name, job.JobState))
-	ticker := time.NewTicker(time.Second * 15)
+	ticker := time.NewTicker(time.Second * time.Duration(job.TickIntervalSecs))
 	lastTick := time.Now().Unix()
 	for {
 		select {
 		case <-ticker.C:
 			now := time.Now().Unix()
-			if now-lastTick > 16 {
-				// if !job.MissedOK
-				job.setHold(true)
+			threshold := int64(job.TickIntervalSecs + job.TickMissedThresholdSecs)
+			if now-lastTick > threshold {
+				if job.HoldOnMissed {
+					job.setHold(true)
+				}
 				job.setJobState(JMissedWarning)
-				// if job.MissedImmediate
-				// job.resetTimer(time.Second * 15)
-				//job.sendUpdate()
 				return nil
 			}
 			lastTick = now

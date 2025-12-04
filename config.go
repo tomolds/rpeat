@@ -140,6 +140,14 @@ type ServerConfig struct {
 	UseRelativePaths bool       `json:"UseRelativePaths,omiyempty" xml:"UseRelativePaths,omitempty"`
 	TempDir          string     `json:"TmpDir" xml:"TmpDir"`
 	Logging          JobLogging `json:"JobLogging" xml:"JobLogging"`
+
+	// Ticker configuration for WaitForTrigger monitoring
+	// TickIntervalSecs is how often the ticker checks for missed triggers (default: 30)
+	TickIntervalSecs int `json:"TickIntervalSecs,omitempty" xml:"TickIntervalSecs,omitempty"`
+	// TickMissedThresholdSecs is the additional buffer time before marking as missed (default: 15)
+	// Total threshold = TickIntervalSecs + TickMissedThresholdSecs
+	TickMissedThresholdSecs int `json:"TickMissedThresholdSecs,omitempty" xml:"TickMissedThresholdSecs,omitempty"`
+
 	Jobs             []Job      `json:"-"`
 }
 
@@ -187,6 +195,8 @@ func LoadServerConfig(config string, save bool) (ServerConfig, error) {
 	// defaults
 	sconf.KeepHistory = true
 	sconf.MaxHistory = 10
+	sconf.TickIntervalSecs = 30
+	sconf.TickMissedThresholdSecs = 15
 	err = json.Unmarshal(byteval, &sconf)
 	if err != nil {
 		ServerLogger.Fatal("error encountered while loading rpeat config file: ", err.Error())
@@ -412,7 +422,7 @@ func LoadTemplates(configs []string) LoadTemplatesOutput {
 	return LoadTemplatesOutput{templates: templates, allJobNames: jobNames, err: err}
 
 }
-func LoadJobSpec(config string, maxhistory int, templates map[string]JobSpec, servername string, serverkey string, apikey string, logging JobLogging) ([]Job, []JobSpec, map[string][]uuid.UUID, bool, error) {
+func LoadJobSpec(config string, maxhistory int, templates map[string]JobSpec, servername string, serverkey string, apikey string, logging JobLogging, tickIntervalSecs int, tickMissedThresholdSecs int) ([]Job, []JobSpec, map[string][]uuid.UUID, bool, error) {
 
 	var specs []JobSpec
 	var err error
@@ -451,7 +461,7 @@ func LoadJobSpec(config string, maxhistory int, templates map[string]JobSpec, se
 		// specs are top-level jobs which may contain .Jobs themselves (max one-level nesting)
 		// i iterates over top-level
 		// j iterates over top-level PLUS Jobs
-		jobs[j] = Job{Disabled: true, Timezone: "UTC", MaxHistory: maxhistory, ServerName: servername, ServerKey: serverkey, src: config, apiKey: apikey}
+		jobs[j] = Job{Disabled: true, Timezone: "UTC", MaxHistory: maxhistory, ServerName: servername, ServerKey: serverkey, src: config, apiKey: apikey, TickIntervalSecs: tickIntervalSecs, TickMissedThresholdSecs: tickMissedThresholdSecs}
 
 		// copy inherited template (if any) into new Job[j]
 		if specs[i].Inherits != nil && !specs[i].isTemplate() {
@@ -896,6 +906,12 @@ func (job *Job) copyJobSpec(spec *JobSpec) {
 	if spec.Reset != nil {
 		job.Reset = spec.Reset
 	}
+	if spec.HoldOnMissed != nil {
+		job.HoldOnMissed = *spec.HoldOnMissed
+	} else {
+		// Default to true (current behavior - hold jobs on missed warnings)
+		job.HoldOnMissed = true
+	}
 	if spec.MaxRuntime != nil {
 		job.MaxRuntime = *spec.MaxRuntime
 	}
@@ -943,7 +959,7 @@ func (job *Job) LoadLocation() {
 func ConvertJobsFile(jobsFile string) {
 	templ := make(map[string]JobSpec)
 	var logging JobLogging
-	_, specs, _, isXML, _ := LoadJobSpec(jobsFile, 0, templ, "", "", "", logging)
+	_, specs, _, isXML, _ := LoadJobSpec(jobsFile, 0, templ, "", "", "", logging, 30, 15)
 	if isXML {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "    ")
@@ -960,10 +976,10 @@ func ConvertJobsFile(jobsFile string) {
 	}
 }
 
-func LoadConfig(home, config string, clean, keephistory bool, maxhistory int, servername string, serverkey string, apikey string, logging JobLogging) (ServerJobs, error) {
-	return LoadConfig2(home, []string{config}, clean, keephistory, maxhistory, servername, serverkey, apikey, logging)
+func LoadConfig(home, config string, clean, keephistory bool, maxhistory int, servername string, serverkey string, apikey string, logging JobLogging, tickIntervalSecs int, tickMissedThresholdSecs int) (ServerJobs, error) {
+	return LoadConfig2(home, []string{config}, clean, keephistory, maxhistory, servername, serverkey, apikey, logging, tickIntervalSecs, tickMissedThresholdSecs)
 }
-func LoadConfig2(home string, jobsFiles []string, clean, keephistory bool, maxhistory int, servername string, serverkey string, apikey string, logging JobLogging) (ServerJobs, error) {
+func LoadConfig2(home string, jobsFiles []string, clean, keephistory bool, maxhistory int, servername string, serverkey string, apikey string, logging JobLogging, tickIntervalSecs int, tickMissedThresholdSecs int) (ServerJobs, error) {
 
 	var err error
 	var alljobs []Job
@@ -979,7 +995,7 @@ func LoadConfig2(home string, jobsFiles []string, clean, keephistory bool, maxhi
 	}
 
 	for _, jobsFile := range jobsFiles {
-		jobs, specs, groups, isXML, _ := LoadJobSpec(jobsFile, maxhistory, templates, servername, serverkey, apikey, logging)
+		jobs, specs, groups, isXML, _ := LoadJobSpec(jobsFile, maxhistory, templates, servername, serverkey, apikey, logging, tickIntervalSecs, tickMissedThresholdSecs)
 
 		alljobs = append(alljobs, jobs...)
 
