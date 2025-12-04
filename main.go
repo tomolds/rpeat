@@ -368,6 +368,9 @@ func (server ServerConfig) startJobs(sd *ServerData) {
 	maxhistory := server.MaxHistory
 
 	ServerLogger.Printf("Loading Jobs configuration file: %s", config[0])
+	// Possibly explore passing server config down the jobs instead of piecemeal e.g. TickIntervalSecs and TickMissedThresholdSecs
+	// E.g. the whole ServerConfig obj or perhaps trim it down to just what is required for the jobs themselves
+	// I think we also need to add HoldOnMissed here to ensure that the value flows through all the way from the config to the jobs
 	sjobs, jve := LoadConfig2(home, config, reloadjobs, keephistory, maxhistory, server.Name, serverkey, server.ApiKey, server.Logging, server.TickIntervalSecs, server.TickMissedThresholdSecs)
 	jobs := sjobs.Jobs
 	job_order := sjobs.JobOrder
