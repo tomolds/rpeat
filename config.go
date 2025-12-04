@@ -147,7 +147,7 @@ type ServerConfig struct {
 	// TickMissedThresholdSecs is the additional buffer time before marking as missed (default: 1)
 	// Total threshold = TickIntervalSecs + TickMissedThresholdSecs
 	TickMissedThresholdSecs int `json:"TickMissedThresholdSecs,omitempty" xml:"TickMissedThresholdSecs,omitempty"`
-
+        HoldOnMissed     bool `json:"HoldOnMissed,omitempty" xml:"HoldOnMissed,omitempty"`
 	Jobs             []Job      `json:"-"`
 }
 
@@ -197,6 +197,7 @@ func LoadServerConfig(config string, save bool) (ServerConfig, error) {
 	sconf.MaxHistory = 10
 	sconf.TickIntervalSecs = 15
 	sconf.TickMissedThresholdSecs = 1
+	sconf.HoldOnMissed = true
 	err = json.Unmarshal(byteval, &sconf)
 	if err != nil {
 		ServerLogger.Fatal("error encountered while loading rpeat config file: ", err.Error())
@@ -731,6 +732,9 @@ func (job *JobSpec) copyTemplate(spec JobSpec) {
 	if spec.Reset != nil {
 		job.Reset = spec.Reset
 	}
+	if spec.HoldOnMissed != nil {
+		job.HoldOnMissed = spec.HoldOnMissed
+	}
 	if spec.MaxRuntime != nil {
 		job.MaxRuntime = spec.MaxRuntime
 	}
@@ -907,9 +911,6 @@ func (job *Job) copyJobSpec(spec *JobSpec) {
 		job.Reset = spec.Reset
 	}
 	if spec.HoldOnMissed != nil {
-		job.HoldOnMissed = *spec.HoldOnMissed
-	} else {
-		// Default to true (current behavior - hold jobs on missed warnings)
 		job.HoldOnMissed = true
 	}
 	if spec.MaxRuntime != nil {
