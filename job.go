@@ -360,7 +360,7 @@ type JobSpec struct {
 	// HoldOnMissed controls whether jobs are automatically held when entering
 	// JMissedWarning state. If true (default), jobs are held. If false, jobs
 	// continue to be scheduled despite missed warnings.
-	HoldOnMissed *bool `json:"HoldOnMissed,omitempty" xml:"HoldOnMissed,omitempty"`
+	HoldOnMissed *bool `json:"HoldOnMissed,omitempty"`
 
 	// HoldDuration is the duration a job is held before being released. This
 	// facilites temporary holds expressed like RetryWait. If empty, job is held

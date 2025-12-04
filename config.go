@@ -142,9 +142,9 @@ type ServerConfig struct {
 	Logging          JobLogging `json:"JobLogging" xml:"JobLogging"`
 
 	// Ticker configuration for WaitForTrigger monitoring
-	// TickIntervalSecs is how often the ticker checks for missed triggers (default: 30)
+	// TickIntervalSecs is how often the ticker checks for missed triggers (default: 15)
 	TickIntervalSecs int `json:"TickIntervalSecs,omitempty" xml:"TickIntervalSecs,omitempty"`
-	// TickMissedThresholdSecs is the additional buffer time before marking as missed (default: 15)
+	// TickMissedThresholdSecs is the additional buffer time before marking as missed (default: 1)
 	// Total threshold = TickIntervalSecs + TickMissedThresholdSecs
 	TickMissedThresholdSecs int `json:"TickMissedThresholdSecs,omitempty" xml:"TickMissedThresholdSecs,omitempty"`
 
@@ -195,8 +195,8 @@ func LoadServerConfig(config string, save bool) (ServerConfig, error) {
 	// defaults
 	sconf.KeepHistory = true
 	sconf.MaxHistory = 10
-	sconf.TickIntervalSecs = 30
-	sconf.TickMissedThresholdSecs = 15
+	sconf.TickIntervalSecs = 15
+	sconf.TickMissedThresholdSecs = 1
 	err = json.Unmarshal(byteval, &sconf)
 	if err != nil {
 		ServerLogger.Fatal("error encountered while loading rpeat config file: ", err.Error())
@@ -959,7 +959,7 @@ func (job *Job) LoadLocation() {
 func ConvertJobsFile(jobsFile string) {
 	templ := make(map[string]JobSpec)
 	var logging JobLogging
-	_, specs, _, isXML, _ := LoadJobSpec(jobsFile, 0, templ, "", "", "", logging, 30, 15)
+	_, specs, _, isXML, _ := LoadJobSpec(jobsFile, 0, templ, "", "", "", logging, 15, 1)
 	if isXML {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "    ")
