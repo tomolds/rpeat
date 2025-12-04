@@ -687,7 +687,7 @@ func ValidateJobs(files []string, configFile, authFile string, verbose bool) Job
 
 		var ntemplates, ndisabled int
 		ji := 0
-		jobs, specs, _, _, err := LoadJobSpec(f, 1, templates, servername, serverkey, apiKey, logging)
+		jobs, specs, _, _, err := LoadJobSpec(f, 1, templates, servername, serverkey, apiKey, logging, 15, 1)
 		if err != nil && verbose {
 			fmt.Printf("  Job loading error encountered in %s\n", f)
 		} else {
