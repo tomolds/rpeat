@@ -197,6 +197,7 @@ func LoadServerConfig(config string, save bool) (ServerConfig, error) {
 	sconf.MaxHistory = 10
 	sconf.TickIntervalSecs = 15
 	sconf.TickMissedThresholdSecs = 1
+	sconf.HoldOnMissed = true
 	err = json.Unmarshal(byteval, &sconf)
 	if err != nil {
 		ServerLogger.Fatal("error encountered while loading rpeat config file: ", err.Error())
