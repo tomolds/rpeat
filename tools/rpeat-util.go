@@ -105,7 +105,7 @@ Usage:
 `, rpeat.BUILDDATE)
 	// next
 	var cron, cronfile, tz, cal, calendarDirs, asof, timefmt, sep string
-	var reqcal, rollback, header, endof bool
+	var reqcal, rollback, header, endof, verbose, asjson bool
 	var jitter int
 	var N int
 	nextCmd := flag.NewFlagSet("next", flag.ExitOnError)
@@ -127,6 +127,7 @@ Usage:
 	// validate
 	var jobfiles, configFile, authFile string // TODO: add configFile and home option
 	validateCmd := flag.NewFlagSet("validate", flag.ExitOnError)
+	validateCmd.BoolVar(&asjson, "json", false, "return json object only")
 	validateCmd.StringVar(&jobfiles, "jobfiles", "", "comma seperated list of job `files`")
 	validateCmd.StringVar(&authFile, "authFile", "", "authentication `file` (used for user validations if specified)")
 	validateCmd.StringVar(&configFile, "configFile", "", "configuration `file` (used for user validations if specified)")
@@ -253,10 +254,18 @@ Usage:
 			// TODO: check apiKey
 		}
 
-		exceptions := rpeat.ValidateJobs(jobs, configFile, authFile, true)
+		verbose = true
+		if asjson {
+			verbose = false
+		}
+		exceptions, all_jve := rpeat.ValidateJobs(jobs, configFile, authFile, verbose)
 		if !exceptions.Validated() {
 			fmt.Println("unable to validate jobs - aborting")
 			os.Exit(1)
+		}
+		if asjson {
+			j, _ := json.Marshal(all_jve)
+			fmt.Println(string(j))
 		}
 		if exceptions.HasError() {
 			os.Exit(2)

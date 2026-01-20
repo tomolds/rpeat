@@ -421,6 +421,7 @@ func runTik(job *Job, pid chan int, retry bool) {
 			job.Started = job.prevStart.In(job._location).Format("2006-01-02 15:04:05")
 			job.prevStop = time.Now()
 			job.PrevStop = job.prevStop.In(job._location).Format("2006-01-02 15:04:05")
+			job.PrevStopUNIX = job.prevStop.Unix()
 			job.PrevStart = job.Started
 			job.elapsed = job.prevStop.Sub(job.prevStart).Round(time.Second)
 			job.Elapsed = dhms(job.elapsed)
@@ -455,6 +456,7 @@ func runTik(job *Job, pid chan int, retry bool) {
 		job.lock.Unlock()
 		job.setJobState(JRunning)
 		job.sendUpdate()
+
 		err = c.Wait() // blocks until job ends, possibly also sending <-job.Ctl if external trigger
 
 		errcode = 0
@@ -471,6 +473,7 @@ func runTik(job *Job, pid chan int, retry bool) {
 		job.IsRunning = false
 		job.prevStop = time.Now()
 		job.PrevStop = job.prevStop.In(job._location).Format("2006-01-02 15:04:05")
+		job.PrevStopUNIX = job.prevStop.Unix()
 		job.PrevStart = job.Started
 		job.elapsed = job.prevStop.Sub(job.prevStart).Round(time.Second)
 		job.Elapsed = dhms(job.elapsed)
@@ -506,7 +509,8 @@ func runTik(job *Job, pid chan int, retry bool) {
 	select {
 	//case evt = <-ctl:
 	case evt = <-job.Ctl:
-		job.ExitCode = int(evt.code)
+		//job.ExitCode = int(evt.code)
+		job.ExitCode = errcode
 		job.setJobState(JState(evt.code))
 		if JState(evt.code) == JRestart {
 			ServerLogger.Printf("Restart triggered on %s", job.JobUUID)
@@ -622,6 +626,7 @@ func stopJob(job *Job, jstate JState) {
 	job.Pid = 0
 	job.prevStop = time.Now()
 	job.PrevStop = job.prevStop.In(job._location).Format("2006-01-02 15:04:05")
+	job.PrevStopUNIX = job.prevStop.Unix()
 	job.PrevStart = job.prevStart.In(job._location).Format("2006-01-02 15:04:05") // only update after job completes to maintain "previous" and not "current"
 	job.elapsed = job.prevStop.Sub(job.prevStart).Round(time.Second)
 	job.Elapsed = dhms(job.elapsed)
@@ -688,6 +693,7 @@ func endAtTime(t *time.Timer, job *Job, ctl chan *Ctl, caller string, e chan boo
 	job.Lock()
 	job.prevStop = time.Now()
 	job.PrevStop = job.prevStop.In(job._location).Format("2006-01-02 15:04:05")
+	job.PrevStopUNIX = job.prevStop.Unix()
 	job.PrevStart = job.prevStart.In(job._location).Format("2006-01-02 15:04:05") // only update after job completes to maintain "previous" and not "current"
 	job.elapsed = job.prevStop.Sub(job.prevStart).Round(time.Second)
 	job.Elapsed = dhms(job.elapsed)

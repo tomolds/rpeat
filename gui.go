@@ -45,6 +45,35 @@ func generateIcon(icon, path string) error {
 	return err
 }
 
+func CreateSounds(dir string) {
+	err := os.MkdirAll(dir, os.FileMode(0770))
+	if err != nil {
+		fmt.Println(err)
+	}
+	for sound, _ := range Sounds {
+		err := generateSounds(sound, dir)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+}
+
+func generateSounds(sound, path string) error {
+	b64string := Sounds[sound]
+	suffix := ".wav"
+	file := filepath.Join(path, sound+suffix)
+	exists, err := FileExists(file)
+	if exists {
+		return err
+	}
+	b, err := base64.StdEncoding.DecodeString(b64string)
+	if err != nil {
+		return err
+	}
+	err = ioutil.WriteFile(file, b, os.FileMode(0644))
+	return err
+}
+
 var ClientHeaderHTML = `
 <div id="top-banner"></div>
 <div id="nav">
@@ -151,10 +180,10 @@ func HistoryBars(job Job) template.HTML {
 	for _, h := range job.History {
 		if !h.isNull() {
 			jobstate := fmt.Sprintf(`<img src="/assets/%s.png" alt="%s">`, h.JobStateString, h.JobStateString)
-			bars = append(bars, fmt.Sprintf(`<tr class=history-row id="%s" onclick="openLog('%s','%s',100);"><td class=runuuid>%s</td><td class=nextstart>%s</td><td class=nextstart>%s</td><td class=elapsed>%s</td><td class="kstate k%s">%s</td><td>%d</td></tr>`,
+			bars = append(bars, fmt.Sprintf(`<tr class=history-row id="%s" onclick="openLog('%s','%s',100);"><td class=runuuid>%s</td><td class=nextstart>%s</td><td class=nextstart>%s</td><td class=elapsed>%s</td><td class="kstate k%s">%s</td><td>%d</td><td>view log</td></tr>`,
 				h.RunUUID, job.JobUUID.String(), h.RunUUID, h.RunUUID, h.Start, h.Stop, h.Elapsed, h.JobStateString, jobstate, h.ExitCode))
 		} else {
-			bars = append(bars, `<tr class=history-row><td class=runuuid></td><td class=nextstart></td><td class=nextstart></td><td class=elapsed></td><td class="kstate"></td><td></td></tr>`)
+			bars = append(bars, `<tr class=history-row><td class=runuuid></td><td class=nextstart></td><td class=nextstart></td><td class=elapsed></td><td class="kstate"></td><td></td><td></td></tr>`)
 		}
 	}
 	return template.HTML(strings.Join(bars, "\n"))
@@ -194,7 +223,7 @@ func GetControls(job Job, perms map[string]bool) template.HTML {
 
 	for i, ctl := range allCtls {
 		if !perms[ctl] {
-			ctls[i] = fmt.Sprintf("<td class='controls-disabled %s'><button class='%s-button'></button></td>", ctl, ctl)
+			ctls[i] = fmt.Sprintf("<td class='controls-off %s'><button class='%s-button'></button></td>", ctl, ctl)
 		} else {
 			if stringInSlice(ctl, availableCtls) {
 				if ctl == "hold" && job.getHold() {
@@ -230,7 +259,7 @@ var JobView = `
   <th class=kstate></th>
   <th class=elapsed>Elapsed</th>
   <th class="controls" colspan=4>Controls</th>
-  <th class=viewlog>View Log</th>
+  <th class=viewlog>view log</th>
 </tr>
 <tr class="job" id="{{ .Job.JobUUID }}">
   <td style="text-align: left;" class=name>{{ .Job.Name }}</td>
@@ -265,7 +294,7 @@ var JobView = `
   {{ $perms := index .Authorized .UUID }}
   {{ getElapsed .Job }}
   {{ getControls .Job $perms }}
-  <td class=stdout-tail onclick='tailLog("{{ .Job.JobUUID }}","{{ .Job.RunUUID }}", 100)'>view</td>
+  <td class=stdout-tail onclick='tailLog("{{ .Job.JobUUID }}","{{ .Job.RunUUID }}", 100, true, true)'>view</td>
   </td>
 </tr>
 </table>
@@ -276,12 +305,33 @@ var JobView = `
       <th style="width: 30%;">RunUUID</th>
       <th style="width: 20%;">Started</th>
       <th style="width: 20%;">Stopped</th>
-      <th style="width: 8%;">Elapsed</th>
-      <th style="width: 14%;">Status</th>
+      <th style="width: 10%;">Elapsed</th>
+      <th style="width: 4%;">Status</th>
       <th style="width: 8%;">ExitCode</th>
+      <th style="width: 8%;">View</th>
     </tr>
     {{ historyBars .Job }}
   </table>
+</div>
+
+<div id="logs" class="job-logs">
+  <span style='font-family: sans-serif; font-size: 80%;'>stdout </span>
+  <button class="server-button" style='border: 1px solid orange; background:transparent;'>
+    <a id="job-stdout-link" style="color:inherit; text-decoration:none;" href="/api/log/out/{{ .Job.JobUUID }}/{{ .Job.RunUUID }}">open</a>
+  </button>
+  <button class="server-button" style='border: 1px solid orange; background:transparent;'>
+    <a id="job-stdout-dl" style="color:inherit; text-decoration:none;" href="/api/log/out/{{ .Job.JobUUID }}/{{ .Job.RunUUID }}?download=true">download</a>
+  </button>
+  <div id="stdout" class="log-window job-stdout"></div>
+
+  <span style='font-family: sans-serif; font-size: 80%;'>stderr </span>
+  <button class="server-button" style='border: 1px solid orange; background:transparent;'>
+    <a id="job-stderr-link" style="color:inherit; text-decoration:none;" href="/api/log/err/{{ .Job.JobUUID }}/{{ .Job.RunUUID }}">open</a>
+  </button>
+  <button class="server-button" style='border: 1px solid orange; background:transparent;'>
+    <a id="job-stderr-dl" style="color:inherit; text-decoration:none;" href="/api/log/err/{{ .Job.JobUUID }}/{{ .Job.RunUUID }}?download=true">download</a>
+  </button>
+  <div id="stderr" class="log-window job-stderr"></div>
 </div>
 
 <table id="info" class=job-info>
@@ -320,22 +370,13 @@ var JobView = `
   <tr><td>StderrFile</td><td> {{ stringify .Job.StderrFile }}</td></tr>
   <tr><td>Retry</td><td> {{ .Job.Retry }}</td></tr>
   <tr><td>RetryWait</td><td> {{ .Job.RetryWait }}</td></tr>
+  <tr><td>RetryReset</td><td> {{ .Job.RetryReset }}</td></tr>
+  <tr><td>MissedReset</td><td> {{ .Job.MissedReset }}</td></tr>
   <tr><td>MaxDuration</td><td> {{ .Job.MaxDuration }}</td></tr>
 </table>
 </div>
 
 <!-- https://www.w3schools.com/w3css/tryit.asp?filename=tryw3css_tabulators_close -->
-<div id="logs" class="job-logs">
-  <h3>Log Output</h3>
-  <div class=log-bar>
-    <button class="log-bar-item" onclick="openTab('stdout')">stdout</button>
-    <button class="log-bar-item" onclick="openTab('stderr')">stderr</button>
-  </div>
-
-  <div id="stdout" class="log-window job-stdout"></div>
-  <div id="stderr" class="log-window job-stderr"></div>
-</div>
-
 <script>
   updateElapsed("{{ .Job.JobUUID }}");
   function openTab(tabName) {
@@ -346,6 +387,7 @@ var JobView = `
     }
     document.getElementById(tabName).style.display = "block";  
   }
+  tailLog("{{ .Job.JobUUID }}","{{ .Job.RunUUID }}", 100, true, true);
 </script>
 `
 
@@ -412,13 +454,35 @@ var JobsTable = `
 {{ end }}`
 
 var ClientJS = `
-function openLog(jobid, runid, n) {
-  var i;
-  var x = document.getElementsByClassName("history-row");
-  var d = document.getElementById(runid)
-  var isClosed = d.style.display == "none";
-  tailLog(jobid, runid, n);
-  document.getElementById("logs").scrollIntoView({ behavior: "smooth" });
+// https://stackoverflow.com/questions/51689653/how-to-smoothly-scroll-to-an-element-in-pure-javascript
+window.smoothScroll = function(target, speed=10) {
+  var scrollContainer = target;
+  do { //find scroll container
+    scrollContainer = scrollContainer.parentNode;
+    if (!scrollContainer) return;
+    scrollContainer.scrollTop += 1;
+  } while (scrollContainer.scrollTop == 0);
+
+  var targetY = 0;
+  do { //find the top of target relatively to the container
+    if (target == scrollContainer) break;
+    targetY += target.offsetTop;
+  } while (target = target.offsetParent);
+
+  scroll = function(c, a, b, i) {
+    i++;
+    if (i > 30) return;
+    c.scrollTop = a + (b - a) / 30 * i;
+    setTimeout(function() {
+      scroll(c, a, b, i);
+    }, speed);
+  }
+  // start scrolling
+  scroll(scrollContainer, scrollContainer.scrollTop, targetY, 0);
+}
+
+function openLog(jobid, runid, n, err=true, out=true) {
+  tailLog(jobid, runid, n, err, out);
 }
 
 function dhms(t) {
@@ -658,6 +722,7 @@ function reqServerRestart() {
   xhttp.onreadystatechange = function() {
     if (this.readyState == 4 && this.status == 200) {
        var obj = JSON.parse(xhttp.responseText)
+       console.log(obj);
        //document.getElementById("info").innerHTML = "<pre>"+JSON.stringify(obj, null, 2)+"</pre>";
     };
   };
@@ -665,7 +730,7 @@ function reqServerRestart() {
   xhttp.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
   xhttp.send("{}");
 };
-function tailLog(jobid, runid, lines) {
+function tailLog(jobid, runid, lines, err, out) {
   var xhttp = new XMLHttpRequest();
   xhttp.onreadystatechange = function() {
     if (this.readyState == 4 && this.status == 200) {
@@ -673,19 +738,23 @@ function tailLog(jobid, runid, lines) {
        var job = obj["job"];
        var j = document.getElementById(jobid);
        console.log(job);
+
+       document.getElementById("job-stdout-link").setAttribute("data-file",job["StdoutFile"]);
+       document.getElementById("job-stdout-link").setAttribute("href","/api/log/out/"+jobid+"/"+runid);
+       document.getElementById("job-stdout-dl").setAttribute("href","/api/log/out/"+jobid+"/"+runid+"?download=true");
        var stdout = j.querySelector("div.job-stdout");
        stdout.innerHTML = "<pre>" + job["Stdout"] + "</pre>";
-       stdout.scrollTop = stdout.scrollHeight;
-       stdout.style.display = "block";
 
+       document.getElementById("job-stderr-link").setAttribute("data-file",job["StderrFile"]);
+       document.getElementById("job-stderr-link").setAttribute("href","/api/log/err/"+jobid+"/"+runid);
+       document.getElementById("job-stderr-dl").setAttribute("href","/api/log/err/"+jobid+"/"+runid+"?download=true");
        var stderr = j.querySelector("div.job-stderr");
        stderr.innerHTML = "<pre>" + job["Stderr"] + "</pre>";
-       stderr.scrollTop = stderr.scrollHeight;
     };
   };
   xhttp.open("POST", "{{ .Base }}/api/log", true);
   xhttp.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
-  xhttp.send(JSON.stringify({ "jobid": jobid, "runid": runid, "stdout": true, "stderr": true, "lines": lines}));
+  xhttp.send(JSON.stringify({ "jobid": jobid, "runid": runid, "stdout": out, "stderr": err, "lines": lines}));
 };
 
 function updateField(obj, query) {
@@ -824,6 +893,7 @@ function updateControls(id, controls) {
     }
   })
 }
+var runuuid = {};
 async function updateJob(id, job, update, imgpath="assets") {
   // td. elems are in tables, a. elems are in dropdowns
   j = document.getElementById(id)
@@ -835,27 +905,23 @@ async function updateJob(id, job, update, imgpath="assets") {
   if ( jstate === "missed" ) {
     jstate = "onhold";
   }
-  //j.querySelector("td.kstate").innerHTML = "<span>" + jstate + "</span>";
   j.querySelector("td.kstate").className = "kstate k"+jstate;
-  //j.querySelector("td.kstate").innerHTML = '<td><span class=dropdown><img src="'+imgpath+'/'+jstate+'.png" alt="'+jstate+'"></span></td>'
-  j.querySelector("td.kstate").innerHTML = '<td><span class=dropdown><img src="/assets/'+jstate+'.png" alt="'+jstate+'"></span></td>'
-  //updateInnerHTML(j.querySelector("a.runid"),"Run ID: " + job["RunUUID"]);
+  j.querySelector("td.kstate").innerHTML = '<td><span class=dropdown><img src="/assets/'+jstate+'.png" alt="'+jstate+'"><div class=dropdown-content><div>'+jstate+'</div></span></td>'
   var e = j.querySelector("a.runid");
   if (e !== null) { e.innerHTML = "Run ID: " + job["RunUUID"]; };
   e = j.querySelector("td.runid");
   if (e !== null) { e.innerHTML = job["RunUUID"]; };
-  //updateInnerHTML(j.querySelector("td.runid"),job["RunUUID"]);
   updateInnerHTML(j.querySelector("a.retryattempt"), "Retry: " + job["RetryAttempt"] + "/" + job["Retry"]);
   updateInnerHTML(j.querySelector("a.pid"), "PID: " + job["Pid"]);
   updateInnerHTML(j.querySelector("td.pid"), job["Pid"]);
   updateInnerHTML(j.querySelector("a.status"),"Status: " + job["JobStateString"]);
   e = j.querySelector("td.stdout-tail");
   if (e !== null) {
-     e.onclick=function() {tailLog(job["JobUUID"],job["RunUUID"],100)}
+     e.onclick=function() {tailLog(job["JobUUID"],job["RunUUID"],100,true,false)}
   }
   e = j.querySelector("td.stderr-tail");
   if (e !== null) {
-     e.onclick=function() {tailLog(job["JobUUID"],job["RunUUID"],100)}
+     e.onclick=function() {tailLog(job["JobUUID"],job["RunUUID"],100,false,true)}
   }
   if (job["Hold"] ) {
     j.querySelector("td.hold").innerHTML = "<button class='resume-button'></button>";
@@ -864,7 +930,9 @@ async function updateJob(id, job, update, imgpath="assets") {
   }
   var runstate = ["running","retrying"];
   var endstate = ["success","manualsuccess","end","failed","retrywait","retryfailed","stopped","missed"];
-  if (runstate.includes(job["JobStateString"])) {
+  var errstate = ["failed","retryfailed","retryfailed","stopped","missedwarning"];
+  if (errstate.includes(job["JobStateString"])) {
+    playAlert();
   }
   if (job["JobStateString"] == "restart") {
     await sleep(1000)
@@ -885,10 +953,11 @@ async function updateJob(id, job, update, imgpath="assets") {
     }
     let MAXROWS=10;
     localStorage.setItem(id, JSON.stringify(previousJobs));
-    if ( j.querySelector(".job-history") !== null && (job["JobStateString"] != job["PrevJobStateString"]) ) {
+    if ( j.querySelector(".job-history") !== null && (job["JobStateString"] != job["PrevJobStateString"]) && runuuid[job["RunUUID"]] === undefined ) {
+      runuuid[job["RunUUID"]] = true;
       prevjob = previousJobs[0][0];
       if(document.getElementById(job["JobUUID"]+"-history").rows.length == MAXROWS+1) {
-        document.getElementById(job["JobUUID"]+"-history").deleteRow(MAXROWS-1);
+        document.getElementById(job["JobUUID"]+"-history").deleteRow(MAXROWS);
       }
       row = document.getElementById(job["JobUUID"]+"-history").insertRow(1);
       row.className = "history-row";
@@ -911,6 +980,8 @@ async function updateJob(id, job, update, imgpath="assets") {
       cell.innerHTML = '<img src="/assets/'+jstate+'.png" alt="'+jstate+'">'
       cell = row.insertCell(5);
       cell.innerHTML = prevjob["ExitCode"];
+      cell = row.insertCell(6);
+      cell.innerHTML = "view log";
     }
   }
   updateControls(id, job["Controls"]);
@@ -1052,6 +1123,10 @@ function blueMode() {
   document.documentElement.style.setProperty("--row-background-color-even", "#001D3D");
   document.documentElement.style.setProperty("--row-color-even", "white");
   document.documentElement.style.setProperty("--controls-background-color", "initial");
+}
+function playAlert() {
+  var failed = new Audio("/assets/failed.wav");
+  failed.play();
 }
 
 {{ end }}`
@@ -1212,7 +1287,6 @@ td.dropdown, span.dropdown, button.dropdown {
 }
 
 button.server-button, button.server-connected, button.server-disconnected, button.server-reconnect {
-    padding: 5px;
     border-radius: 5px;
     border: 1px;
     border-color: white;
@@ -1417,14 +1491,18 @@ div.job-logs {
   margin: auto;
 }
 div.job-stdout, div.job-stderr {
-  display: none;
-  border: 1px solid #EEE;;
-  border-radius: 5px;
+  border: 1px solid #DDD;
+  border-radius: 15px;
   overflow-x: scroll;
   overflow-y: scroll;
   max-width: 1100px;
   margin: auto;
-  max-height: 30em;
+  min-height: 12em;
+  max-height: 12em;
+  background-color: #EEE;
+  color: #333;
+  padding: 10px;
+  margin-bottom: 20px;
 }
 tbody tr.job {
   background-color: var(--row-background-color-even);

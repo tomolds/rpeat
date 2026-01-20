@@ -17,6 +17,7 @@ type Artifact struct {
 	// asynchronous upload for secure storage and access
 
 	// Src is local file generated from rpeat® process
+
 	Src string `json:"Src" xml:"Src"`
 	// Dst is path to external object including resource URI
 	//  e.g.
@@ -32,10 +33,14 @@ type Artifact struct {
 	Permissions Permission `json:"-" xml:"-"`
 	Retain      string     `json:"Retain" xml:"Retain"`
 	Type        string     `json:"Type" xml:"Type"`
+	Compress    string     `json:"Compress" xml:"Compress"`
 
 	// Unique ID of artifact
 	UUID string      `json:"UUID" xml:"UUID"`
 	Stat os.FileInfo `json:"Stat" xml:"Stat"`
+
+	MinSize  int64 `json:"MinSize" xml:"MinSize"`
+	MinLines int64 `json:"MinLines" xml:"MinLines"`
 
 	JobUUID string `json:"JobUUID" xml:"JobUUID"`
 	RunUUID string `json:"RunUUID" xml:"RunUUID"`

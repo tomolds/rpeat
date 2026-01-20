@@ -2,6 +2,7 @@ package rpeat
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"github.com/fsnotify/fsnotify"
 	"io"
@@ -276,6 +277,25 @@ func watchFile(f string, op fsnotify.Op) { // should take fsnotify.Op
 		ServerLogger.Println("error attempting to watch pid file")
 	}
 	<-done
+}
+
+func nlines(r io.Reader) (int, error) {
+	buf := make([]byte, 32*1024)
+	count := 0
+	lineSep := []byte{'\n'}
+
+	for {
+		c, err := r.Read(buf)
+		count += bytes.Count(buf[:c], lineSep)
+
+		switch {
+		case err == io.EOF:
+			return count, nil
+
+		case err != nil:
+			return count, err
+		}
+	}
 }
 
 func tailOffset(file string, N int) (offset int64) {

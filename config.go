@@ -15,7 +15,6 @@ import (
 	"reflect"
 	"strings"
 	"time"
-	//"github.com/davecgh/go-spew/spew"
 )
 
 var GITCOMMIT, BUILDDATE, VERSION string
@@ -85,6 +84,7 @@ type ServerData struct {
 	unwatch      chan bool
 	pidfile      string
 	shutdownJobs func()
+	jve          map[uuid.UUID]JobValidationExceptions
 }
 
 // find job by UUID or slug
@@ -187,6 +187,7 @@ func LoadServerConfig(config string, save bool) (ServerConfig, error) {
 	// defaults
 	sconf.KeepHistory = true
 	sconf.MaxHistory = 10
+	sconf.Timezone = "UTC"
 	err = json.Unmarshal(byteval, &sconf)
 	if err != nil {
 		ServerLogger.Fatal("error encountered while loading rpeat config file: ", err.Error())
@@ -412,7 +413,7 @@ func LoadTemplates(configs []string) LoadTemplatesOutput {
 	return LoadTemplatesOutput{templates: templates, allJobNames: jobNames, err: err}
 
 }
-func LoadJobSpec(config string, maxhistory int, templates map[string]JobSpec, servername string, serverkey string, apikey string, logging JobLogging) ([]Job, []JobSpec, map[string][]uuid.UUID, bool, error) {
+func LoadJobSpec(config string, maxhistory int, templates map[string]JobSpec, sconf ServerConfig, servername string, serverkey string, apikey string, logging JobLogging) ([]Job, []JobSpec, map[string][]uuid.UUID, bool, error) {
 
 	var specs []JobSpec
 	var err error
@@ -451,7 +452,7 @@ func LoadJobSpec(config string, maxhistory int, templates map[string]JobSpec, se
 		// specs are top-level jobs which may contain .Jobs themselves (max one-level nesting)
 		// i iterates over top-level
 		// j iterates over top-level PLUS Jobs
-		jobs[j] = Job{Disabled: true, Timezone: "UTC", MaxHistory: maxhistory, ServerName: servername, ServerKey: serverkey, src: config, apiKey: apikey}
+		jobs[j] = Job{Disabled: true, Timezone: sconf.Timezone, MaxHistory: sconf.MaxHistory, ServerName: sconf.Name, ServerKey: serverkey, src: config, apiKey: sconf.ApiKey}
 
 		// copy inherited template (if any) into new Job[j]
 		if specs[i].Inherits != nil && !specs[i].isTemplate() {
@@ -478,7 +479,6 @@ func LoadJobSpec(config string, maxhistory int, templates map[string]JobSpec, se
 			if specs[j].Logging == nil {
 				ServerLogger.Printf("adding log rotation to %s", jobs[j].JobUUID)
 				jobs[j].Logging.Purge = logging.Purge
-				//spew.Dump(jobs[j].Logging)
 			}
 		}
 		parentJob := jobs[j]
@@ -943,7 +943,7 @@ func (job *Job) LoadLocation() {
 func ConvertJobsFile(jobsFile string) {
 	templ := make(map[string]JobSpec)
 	var logging JobLogging
-	_, specs, _, isXML, _ := LoadJobSpec(jobsFile, 0, templ, "", "", "", logging)
+	_, specs, _, isXML, _ := LoadJobSpec(jobsFile, 0, templ, ServerConfig{}, "", "", "", logging)
 	if isXML {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "    ")
@@ -960,10 +960,10 @@ func ConvertJobsFile(jobsFile string) {
 	}
 }
 
-func LoadConfig(home, config string, clean, keephistory bool, maxhistory int, servername string, serverkey string, apikey string, logging JobLogging) (ServerJobs, error) {
-	return LoadConfig2(home, []string{config}, clean, keephistory, maxhistory, servername, serverkey, apikey, logging)
-}
-func LoadConfig2(home string, jobsFiles []string, clean, keephistory bool, maxhistory int, servername string, serverkey string, apikey string, logging JobLogging) (ServerJobs, error) {
+//func LoadConfig(home, config string, clean, keephistory bool, maxhistory int, servername string, serverkey string, apikey string, logging JobLogging) (ServerJobs, error) {
+//	return LoadConfig2(home, []string{config}, clean, keephistory, maxhistory, servername, serverkey, apikey, logging)
+//}
+func LoadConfig2(home string, jobsFiles []string, sconf ServerConfig, clean, keephistory bool, maxhistory int, servername string, serverkey string, apikey string, logging JobLogging) (ServerJobs, error) {
 
 	var err error
 	var alljobs []Job
@@ -979,7 +979,7 @@ func LoadConfig2(home string, jobsFiles []string, clean, keephistory bool, maxhi
 	}
 
 	for _, jobsFile := range jobsFiles {
-		jobs, specs, groups, isXML, _ := LoadJobSpec(jobsFile, maxhistory, templates, servername, serverkey, apikey, logging)
+		jobs, specs, groups, isXML, _ := LoadJobSpec(jobsFile, sconf.MaxHistory, templates, sconf, sconf.Name, serverkey, sconf.ApiKey, sconf.Logging)
 
 		alljobs = append(alljobs, jobs...)
 
@@ -1014,8 +1014,8 @@ func LoadConfig2(home string, jobsFiles []string, clean, keephistory bool, maxhi
 		rj := fmt.Sprintf("%s/.%s.rj", home, job.JobUUID)
 		_, err := os.Stat(rj)
 		if err == nil {
-			if clean {
-				if keephistory {
+			if sconf.Clean {
+				if sconf.KeepHistory {
 					ServerLogger.Printf("loading job history for %s", job.JobUUID)
 					tmpjob, err := LoadJobState(rj, true)
 					if err != nil {
@@ -1036,7 +1036,6 @@ func LoadConfig2(home string, jobsFiles []string, clean, keephistory bool, maxhi
 				// alljobs[i] = tmpjob
 				alljobs[i].History = tmpjob.History
 				alljobs[i].JobState = tmpjob.JobState
-				alljobs[i].Logging = tmpjob.Logging
 			}
 			if err != nil {
 				ServerLogger.Fatal("failed to load prior state from", rj)
@@ -1188,7 +1187,6 @@ func (job *Job) parseJob(createDir bool) error {
 		job.TmpDir = filepath.Join(os.TempDir(), "rpeat")
 	}
 	//job.Logging.Logs = make([]JobLog,0)
-	//spew.Dump(job.Logging)
 	if job.Logging.Purge == "" { // never remove
 		job.Logging.purge = time.Duration(math.MaxInt64)
 	} else {

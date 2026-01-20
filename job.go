@@ -47,6 +47,7 @@ type EnvList []string
 type Reason struct {
 	Action    string `json:"Action,omitempty"`
 	Comment   string `json:"Comment"`
+	HeldUntil string `json:"HeldUntil"`
 	User      string `json:"User,omitempty"`
 	Timestamp int64  `json:"Timestamp,omitempty"`
 }
@@ -147,6 +148,10 @@ func (jstate JState) ColorizedString() string {
 		s = jstate.String()
 	}
 	return s
+}
+
+func (j JState) MarshalText() ([]byte, error) {
+	return []byte(j.String()), nil
 }
 
 type KConfig interface {
@@ -504,6 +509,7 @@ type Job struct {
 	MissedReset  string `json:"MissedReset,omitempty"`
 	Reset        *Reset `json:"Reset,omitempty"`
 	HoldDuration string `json:"HoldDuration"`
+	holdDuration string `json:"-"`
 	Reason       Reason `json:"Reason"`
 
 	//Repeat time.Duration
@@ -546,6 +552,7 @@ type Job struct {
 	History            []JobHistory `json:"History,omitempty"`
 	//FullHistory []JobHistory `json:"-"`
 	StartedUNIX   int64 `json:"StartedUNIX,omitempty"`
+	PrevStopUNIX   int64 `json:"PrevStopUNIX,omitempty"`
 	NextStartUNIX int64 `json:"NextStartUNIX,omitempty"`
 	StdoutFile    []string
 	StderrFile    []string
@@ -590,6 +597,10 @@ type JobLog struct {
 	PrevStop time.Time
 	LogFiles []string
 }
+type LogStats struct {
+	Size  int64
+	Lines int64
+}
 
 // JobLogging allows for specifying additional files for standard output and
 // error logging, controls whether files are appended to across runs, and allows
@@ -598,15 +609,27 @@ type JobLogging struct {
 	StdoutFile string `json:"StdoutFile,omitempty" xml:"StdoutFile,omitempty"`
 	StderrFile string `json:"StderrFile,omitempty" xml:"StderrFile,omitempty"`
 	Append     bool   `json:"Append,omitempty" xml:"Append,omitempty"`
-	Purge      string `json:"Purge,omitempty" xml:"Purge,omitempty"`
-	purge      time.Duration
+	// Remove files after duration specified by Purge using a timer
+	// or FIFO queue with keeping history less than or equal to Max
+	Purge string `json:"Purge,omitempty" xml:"Purge,omitempty"`
+	Max   int    `json:"Max,omitempty" xml:"Max,omitempty"`
 	//Perm os.FileMode
-	stdoutFile string
-	stderrFile string
-	Logs       []JobLog `json:"Logs,omitempty" xml:"Logs,omitempty"`
-	l          *time.Timer
+	stdoutFile  string
+	stderrFile  string
+	Logs        []JobLog `json:"Logs,omitempty" xml:"Logs,omitempty"`
+	StdoutStats LogStats `json:"Stats,omitempty" xml:"State,omitempty"`
+	StderrStats LogStats `json:"Stats,omitempty" xml:"State,omitempty"`
+	purge       time.Duration
+	l           *time.Timer
 }
 
+// JobStats tracks execution statistics
+type JobStats struct {
+	Elapsed                                                 int64
+	Triggers, Manual, Stopped, Success, Failed, RetryFailed int
+	Memory                                                  int64
+	CPU                                                     float64
+}
 type JobHistory struct {
 	RunUUID        string
 	ExitCode       int
@@ -672,6 +695,7 @@ func (job *Job) addHistory() {
 func (h JobHistory) isNull() bool {
 	return h.RunUUID == "00000000-0000-0000-0000-000000000000"
 }
+/* TODO: getHistory */
 func (job *Job) getLogs(runid string) (stdout string, stderr string) {
 	ServerLogger.Printf("[ getLogging for %s ] %s", runid, job.JobUUID)
 	if runid == job.RunUUID.String() {
@@ -885,6 +909,7 @@ type JobUpdateParams struct {
 	RequireCal         *bool
 	PrevStart          *string
 	PrevStop           *string
+	PrevStopUNIX        *int64
 	Elapsed            *string
 	Started            *string
 	StartedUNIX        *int64
@@ -916,6 +941,7 @@ type JobStatusParams struct {
 	JobUUID        uuid.UUID
 	RunUUID        uuid.UUID
 	PrevStop       string
+	PrevStopUNIX   int64
 	Elapsed        string
 	ElapsedUNIX    int64
 	Started        string
@@ -977,6 +1003,7 @@ func (job *Job) updateParams() *JobUpdateParams {
 		RequireCal:         &job.RequireCal,
 		PrevStart:          &job.PrevStart,
 		PrevStop:           &job.PrevStop,
+		PrevStopUNIX:       &job.PrevStopUNIX,
 		Elapsed:            &job.Elapsed,
 		Started:            &job.Started,
 		StartedUNIX:        &job.StartedUNIX,
@@ -1016,9 +1043,15 @@ func (job *Job) statusParams() *JobStatusParams {
 	}
 	return &params
 }
+func (job *Job) sendUpdateClient() {
+	tzname, tzoffset := time.Now().Zone()
+	// websocket clients
+	job.updates <- &JobUpdate{Uuid: job.JobUUID.String(), Modified: job.modified, Job: *job.updateParams(), Tzoffset: tzoffset, Tzname: tzname}
+}
 func (job *Job) sendUpdate() {
-	//job.Lock()
-	//defer job.Unlock()
+
+	//_, filename, line, _ := runtime.Caller(1)
+	//ServerLogger.Printf("[sendUpdate] %s:%d", filename, line)
 
 	tzname, tzoffset := time.Now().Zone()
 	// websocket clients
@@ -1151,23 +1184,41 @@ func (job *Job) setJobState(s JState) error {
 		job.addHistory()
 	case JMissedWarning:
 		ServerLogger.Printf("checking for MissedReset: %s", job.MissedReset)
+        //_, filename, line, _ := runtime.Caller(1)
+        //ServerLogger.Printf("[error] %s:%d", filename, line)
 		if job.MissedReset != "" {
-			d, _ := time.ParseDuration(job.MissedReset)
-			if d < 0 {
-				// special case if negative duration, trigger job
-				time.AfterFunc(d, func() { job.setHold(false); job.resetTimer(time.Second * 0) })
-			} else {
-				time.AfterFunc(d, func() { job.setHold(false) })
+			if !job.Hold && job.JobState != JRetrying {
+				d, _ := time.ParseDuration(job.MissedReset)
+				if d < 0 {
+					// special case if negative duration, trigger job
+					time.AfterFunc(d, func() { job.setHold(false); job.resetTimer(time.Second * 0) })
+				} else {
+					time.AfterFunc(d, func() { job.setHold(false) })
+				}
 			}
+		} else {
+			job.setHold(true)
 		}
 		job.addHistory()
 	case JHold:
 		ServerLogger.Printf("checking for HoldDuration: %s", job.HoldDuration)
-		if job.HoldDuration != "" {
-
+		if job.HoldDuration != "" || job.holdDuration != "" {
+			if job.holdDuration == "" {
+				job.holdDuration = job.HoldDuration
+			}
+			d, _ := time.ParseDuration(job.holdDuration)
+			ServerLogger.Printf("setting hold release on %s for %s", job.JobUUID, d)
+			time.AfterFunc(d, func() {
+				ServerLogger.Printf("releasing hold on %s", job.JobUUID)
+				job.setHold(false)
+				job.setJobState(JReady)
+				job.sendUpdate()
+			})
+		} else {
+			ServerLogger.Printf("no hold release on", job.JobUUID)
 		}
 		job.addHistory()
-	case JSuccess, JManualSuccess, JEnd, JRetryFailed, JDepWarning, JDepFailed:
+	case JSuccess, JManualSuccess, JEnd, JRetryFailed, JDepWarning, JDepFailed, JStopped:
 		job.addHistory()
 	}
 	job.SaveSnapshot(true)
@@ -1177,18 +1228,14 @@ func (job *Job) setJobState(s JState) error {
 func (job *Job) WaitForTrigger(stop <-chan bool) error {
 	ServerLogger.Printf(InfoColor, fmt.Sprintf("Waiting for Trigger %s:%s (%s)", job.JobUUID, job.Name, job.JobState))
 	ticker := time.NewTicker(time.Second * 15)
+    defer ticker.Stop()
 	lastTick := time.Now().Unix()
 	for {
 		select {
 		case <-ticker.C:
 			now := time.Now().Unix()
-			if now-lastTick > 16 {
-				// if !job.MissedOK
-				job.setHold(true)
+			if now-lastTick > 30 {
 				job.setJobState(JMissedWarning)
-				// if job.MissedImmediate
-				// job.resetTimer(time.Second * 15)
-				//job.sendUpdate()
 				return nil
 			}
 			lastTick = now

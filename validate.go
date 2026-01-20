@@ -32,6 +32,11 @@ func (ce ConfigException) String() string {
 	return names[ce]
 }
 
+// MarshalText implements the encoding.TextMarshaler interface.
+func (ce ConfigException) MarshalText() ([]byte, error) {
+	return []byte(ce.String()), nil
+}
+
 // trigger JConfigWarning
 type ValidationWarning struct {
 	JobName   string
@@ -489,7 +494,7 @@ func (e DependencyError) Error() string {
 	return s
 }
 func (job *Job) ValidateDependency(jobs map[string]*Job) {
-	if job.Dependency == nil && job.isCronDependent() {
+	if job.Dependency == nil && job.isCronDependent() && !job.isTemplate() {
 		de := DependencyError{Exception: DependsWithoutDependency, Name: job.Name}
 		job.jve.AddError(ValidationError{JobName: job.Name, Msg: de.Error(), Exception: Dependencies})
 		return
@@ -661,7 +666,10 @@ func ValidateConfig(configFile string) ConfigValidationExceptions {
 // o  InvalidTimezone
 // o  AbbreviatedTimezone
 //
-func ValidateJobs(files []string, configFile, authFile string, verbose bool) JobValidationExceptions {
+type JobValidationExceptionsMap map[uuid.UUID]JobValidationExceptions
+
+func ValidateJobs(files []string, configFile, authFile string, verbose bool) (JobValidationExceptions, JobValidationExceptionsMap) {
+	ServerLogger.Println("validating job files")
 	var totaljobs, totaltemplates, totaldisabled int
 	var nerr, nwarn int
 	jve := JobValidationExceptions{}
@@ -687,7 +695,7 @@ func ValidateJobs(files []string, configFile, authFile string, verbose bool) Job
 
 		var ntemplates, ndisabled int
 		ji := 0
-		jobs, specs, _, _, err := LoadJobSpec(f, 1, templates, servername, serverkey, apiKey, logging)
+		jobs, specs, _, _, err := LoadJobSpec(f, 1, templates, ServerConfig{}, servername, serverkey, apiKey, logging)
 		if err != nil && verbose {
 			fmt.Printf("  Job loading error encountered in %s\n", f)
 		} else {
@@ -793,8 +801,10 @@ func ValidateJobs(files []string, configFile, authFile string, verbose bool) Job
 		job.ValidateDependency(jobmap)
 	}
 
-	fmt.Println()
-	fmt.Println("Jobs:\n")
+	if verbose {
+		fmt.Println()
+		fmt.Println("Jobs:\n")
+	}
 	ji := 0
 	for i, _ := range alljobs {
 		if !alljobs[i].isTemplate() {
@@ -930,10 +940,14 @@ func ValidateJobs(files []string, configFile, authFile string, verbose bool) Job
 		}
 	}
 
-	fmt.Println("Templates:\n")
+	if verbose {
+		fmt.Println("Templates:\n")
+	}
 	t := 0
 	if totaltemplates == 0 {
-		fmt.Println("  None")
+		if verbose {
+			fmt.Println("  None")
+		}
 	} else {
 		for i, _ := range alljobs {
 			if alljobs[i].isTemplate() {
@@ -972,6 +986,11 @@ func ValidateJobs(files []string, configFile, authFile string, verbose bool) Job
 		fmt.Println()
 	}
 
+	alljve := make(map[uuid.UUID]JobValidationExceptions)
+	for i := range alljobs {
+		alljve[alljobs[i].JobUUID] = alljobs[i].jve
+	}
+
 	jve.checked = true
-	return jve
+	return jve, alljve
 }

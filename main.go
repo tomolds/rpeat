@@ -64,6 +64,7 @@ func StartServer(server ServerConfig) {
 `)
 	pidfile := createPidFile(home, port, os.Getpid())
 	CreateIcons(filepath.Join(home, "assets"))
+	CreateSounds(filepath.Join(home, "assets"))
 
 	fmt.Printf("\nrpeat® server time is %s\n", server.Now().String())
 	if !useHttps {
@@ -75,6 +76,7 @@ func StartServer(server ServerConfig) {
 
 	sd := &ServerData{}
 	sd.pidfile = pidfile
+	_, sd.jve = ValidateJobs(server.JobsFiles, server.ConfigFile, server.AuthFile, false)
 
 	server.startJobs(sd)
 	if server.Heartbeat {
@@ -166,6 +168,44 @@ func StartServer(server ServerConfig) {
 	mx.Handle("/api/restart", restartHandler)
 	mx.Handle("/api/hold", holdHandler)
 	mx.Handle("/api/status", statusHandler)
+
+	mx.HandleFunc("/api/log/{ext}/{jobid}/{runid}", func(w http.ResponseWriter, r *http.Request) {
+
+		vars := mux.Vars(r)
+		ext := vars["ext"]
+		jobid := vars["jobid"]
+		runid := vars["runid"]
+		download := r.URL.Query().Get("download")
+
+		job, ok := sd.jobs.getJob(jobid) // strictly checking functionality
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		user, _, _ := r.BasicAuth()
+		if !job.hasPermission(user, "log") {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		stdoutFile, stderrFile := job.getLogs(runid)
+		var logfile string
+		switch ext {
+		case "out":
+			logfile = stdoutFile
+		case "err":
+			logfile = stderrFile
+		}
+		ServerLogger.Printf("[download log files] %s-%s.std%s", jobid, runid, ext)
+
+		if download == "true" {
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s-%s.std%s", jobid, runid, ext))
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		http.ServeFile(w, r, logfile)
+	})
 
 	/* Job Page */
 	mx.HandleFunc("/job/{jobuuid}", func(w http.ResponseWriter, r *http.Request) {
@@ -368,7 +408,7 @@ func (server ServerConfig) startJobs(sd *ServerData) {
 	maxhistory := server.MaxHistory
 
 	ServerLogger.Printf("Loading Jobs configuration file: %s", config[0])
-	sjobs, jve := LoadConfig2(home, config, reloadjobs, keephistory, maxhistory, server.Name, serverkey, server.ApiKey, server.Logging)
+	sjobs, jve := LoadConfig2(home, config, server, reloadjobs, keephistory, maxhistory, server.Name, serverkey, server.ApiKey, server.Logging)
 	jobs := sjobs.Jobs
 	job_order := sjobs.JobOrder
 	groups := sjobs.Groups
@@ -492,8 +532,8 @@ func (server *ServerConfig) reloadJobs(sd *ServerData) {
 	keephistory := server.KeepHistory
 	maxhistory := server.MaxHistory
 
-	ServerLogger.Printf("[reloadJobs] loading Jobs configuration file: %v", config)
-	sjobs, _ := LoadConfig2(home, config, reloadjobs, keephistory, maxhistory, server.Name, serverkey, server.ApiKey, server.Logging)
+	ServerLogger.Printf("[reloadJobs] loading %d Job configuration files: %v", len(config), config)
+	sjobs, _ := LoadConfig2(home, config, *server, reloadjobs, keephistory, maxhistory, server.Name, serverkey, server.ApiKey, server.Logging)
 
 	var wg sync.WaitGroup
 
@@ -514,7 +554,7 @@ func (server *ServerConfig) reloadJobs(sd *ServerData) {
 					job.setNextStart(next)
 					ServerLogger.Printf("Next job %s <%s> scheduled for %s [%d] (starts in %s)\n", job.Name, job.JobUUID, next, next.Unix(), d.Round(time.Second))
 					ServerLogger.Printf("completed Job update for %s [%s]", job.Name, job.JobUUID)
-					job.sendUpdate()
+					job.sendUpdateClient() // only update clients
 				}()
 
 				ServerLogger.Printf("acquired runlock for %s (%s)", job.Name, job.JobUUID)
@@ -732,6 +772,7 @@ func (x *Job) areEqualSpec(y *Job) bool {
 		ServerLogger.Printf("TmpDir has been updated")
 		return false
 	}
+	ServerLogger.Printf("checking logging purge %s <-> %s", x.Logging.Purge, y.Logging.Purge)
 	if x.Logging.StdoutFile != y.Logging.StdoutFile || x.Logging.StderrFile != y.Logging.StderrFile || x.Logging.Append != y.Logging.Append || x.Logging.Purge != y.Logging.Purge {
 		ServerLogger.Printf("Logging has been updated")
 		return false

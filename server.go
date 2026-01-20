@@ -21,10 +21,10 @@ type Service interface {
 	ServerRestart(string) (*ServerConfig, error)
 
 	// Controls
-	Start(string, string) (*controlResponse, error)
-	Stop(string, string) (*controlResponse, error)
-	Hold(string, string) (*controlResponse, error)
-	Restart(string, string) (*controlResponse, error)
+	Start(string, string, string) (*controlResponse, error)
+	Stop(string, string, string) (*controlResponse, error)
+	Hold(string, string, string, string) (*controlResponse, error)
+	Restart(string, string, string) (*controlResponse, error)
 	Log(string, string, string, bool, bool, int, int64) (*LogOutput, error)
 
 	Resume(string, string) (*JobUpdateParams, error) // not implemented and may never be
@@ -122,7 +122,7 @@ func (k service) Status(jobid string, user string) (*JobUpdateParams, error) {
 		return &JobUpdateParams{}, errors.New("bad jobid")
 	}
 	if permitted := job.hasPermission(user, "status"); !permitted {
-		return &JobUpdateParams{}, ErrEmpty
+		return &JobUpdateParams{}, errors.New("request denied: insufficient permissions")
 	}
 	return job.updateParams(), nil
 }
@@ -134,6 +134,7 @@ func (k service) AllStatus(user string, reqgroups []string) (jobsStatusResponse,
 	sconf := k.ServerConfig
 	if permitted := sconf.hasPermission(user, "info"); !permitted {
 		ServerLogger.Printf("[ACCESS DENIED] ServerInfo request from user:%s ", user)
+		return jobsStatusResponse{}, ErrPermission
 	}
 
 	job_order := make([]string, len(k.sd.job_order))
@@ -216,7 +217,7 @@ func (k service) Log(jobid, runid, user string, stdout, stderr bool, lines int, 
 	if job, ok := k.Jobs[jobid]; ok {
 		if permitted := job.hasPermission(user, "log"); !permitted {
 			ServerLogger.Println("access to logs denied")
-			return logs, ErrEmpty
+			return logs, ErrPermission
 		}
 		stdoutFile, stderrFile := job.getLogs(runid)
 		//tmpdir := job.TmpDir
@@ -239,14 +240,14 @@ func (k service) ServerInfo(user string) (*ServerConfig, error) {
 	if permitted := sconf.hasPermission(user, "info"); !permitted {
 		ServerLogger.Printf("[ACCESS DENIED] ServerInfo request from user:%s ", user)
 		empty := new(ServerConfig)
-		return empty, ErrEmpty
+		return empty, ErrPermission
 	}
 	return &sconf, nil
 }
 
 // api endpoint behaviors Hold, Stop, Start, Restart
 //
-func (k service) Hold(jobid string, user string) (*controlResponse, error) {
+func (k service) Hold(jobid string, user string, comment, duration string) (*controlResponse, error) {
 	ServerLogger.Printf("\tHOLD\tJobUUID: %s\tuser:%s", jobid, user)
 	job, ok := k.Jobs[jobid]
 	if !ok {
@@ -262,7 +263,7 @@ func (k service) Hold(jobid string, user string) (*controlResponse, error) {
 	if isHold {
 		job.Unscheduled = false
 		job.setHold(false)
-		job.Reason = Reason{Action: "unhold", User: user, Timestamp: time.Now().Unix()}
+		job.Reason = Reason{Action: "unhold", Comment: comment, User: user, Timestamp: time.Now().Unix()}
 		job.setRetryAttempt(0)
 		job.setJobState(JReady)
 	} else {
@@ -270,7 +271,7 @@ func (k service) Hold(jobid string, user string) (*controlResponse, error) {
 			job.getProc().Kill() // FIXME: shouldn't be in Hold, rather chain call or disable
 		}
 		job.setHold(true)
-		job.Reason = Reason{Action: "hold", User: user, Timestamp: time.Now().Unix()}
+		job.Reason = Reason{Action: "hold", Comment: comment, User: user, Timestamp: time.Now().Unix()}
 		job.setJobState(JHold)
 	}
 	job.IsRunning = false
@@ -279,7 +280,7 @@ func (k service) Hold(jobid string, user string) (*controlResponse, error) {
 	job.sendUpdate()
 	return &controlResponse{Status: "success"}, nil
 }
-func (k service) Start(jobid string, user string) (*controlResponse, error) {
+func (k service) Start(jobid string, user string, comment string) (*controlResponse, error) {
 	ServerLogger.Printf("\tSTART\tJobUUID: %s\tuser:%s", jobid, user)
 	job, ok := k.Jobs[jobid]
 	if !ok {
@@ -294,7 +295,7 @@ func (k service) Start(jobid string, user string) (*controlResponse, error) {
 	}
 	if !job.IsRunning {
 		job.Unscheduled = true
-		job.Reason = Reason{Action: "start", User: user, Timestamp: time.Now().Unix()}
+		job.Reason = Reason{Action: "start", Comment: comment, User: user, Timestamp: time.Now().Unix()}
 		job.resetTimer(time.Second * 0)
 		//job.setJobState(JManual)
 		//job.sendUpdate()
@@ -303,7 +304,7 @@ func (k service) Start(jobid string, user string) (*controlResponse, error) {
 	}
 	return &controlResponse{Status: "success"}, nil
 }
-func (k service) Stop(jobid string, user string) (*controlResponse, error) {
+func (k service) Stop(jobid string, user string, comment string) (*controlResponse, error) {
 	ServerLogger.Printf("\tSTOP\tJobUUID: %s\tuser:%s", jobid, user)
 	job, ok := k.Jobs[jobid]
 	if !ok {
@@ -313,7 +314,7 @@ func (k service) Stop(jobid string, user string) (*controlResponse, error) {
 		return &controlResponse{Status: "permission denied"}, ErrEmpty
 	}
 	job.Unscheduled = true
-	job.Reason = Reason{Action: "stop", User: user, Timestamp: time.Now().Unix()}
+	job.Reason = Reason{Action: "stop", Comment: comment, User: user, Timestamp: time.Now().Unix()}
 	if job.ShutdownCmd == "" {
 		stopJob(job, JStopped)
 	} else {
@@ -321,7 +322,7 @@ func (k service) Stop(jobid string, user string) (*controlResponse, error) {
 	}
 	return &controlResponse{Status: "stopped"}, nil
 }
-func (k service) Restart(jobid string, user string) (*controlResponse, error) {
+func (k service) Restart(jobid string, user string, comment string) (*controlResponse, error) {
 	ServerLogger.Printf("\tRESTART\tJobUUID: %s\tuser:%s", jobid, user)
 	job, ok := k.Jobs[jobid]
 	if !ok {
@@ -331,7 +332,7 @@ func (k service) Restart(jobid string, user string) (*controlResponse, error) {
 		return &controlResponse{Status: "permission denied"}, ErrEmpty
 	}
 	job.Unscheduled = true
-	job.Reason = Reason{Action: "restart", User: user, Timestamp: time.Now().Unix()}
+	job.Reason = Reason{Action: "restart", Comment: comment, User: user, Timestamp: time.Now().Unix()}
 	if job.ShutdownCmd == "" {
 		stopJob(job, JEnd)
 		time.Sleep(time.Second * 1)
@@ -350,7 +351,7 @@ func (k service) Resume(jobid string, user string) (*JobUpdateParams, error) {
 		return job.updateParams(), errors.New("bad jobid")
 	}
 	if permitted := job.hasPermission(user, "resume"); !permitted {
-		return job.updateParams(), ErrEmpty
+		return job.updateParams(), ErrPermission
 	}
 	resumeJob(job)
 	return job.updateParams(), nil
@@ -359,6 +360,7 @@ func (k service) Resume(jobid string, user string) (*JobUpdateParams, error) {
 // request/response structures
 //
 var ErrEmpty = errors.New("empty string")
+var ErrPermission = errors.New("insufficient permission")
 
 /* request and response structs - should be generic!*/
 type jobsRequest struct {
@@ -505,7 +507,7 @@ func makeServerRestartEndpoint(svc Service) endpoint.Endpoint {
 func makeHoldEndpoint(svc Service) endpoint.Endpoint {
 	return func(_ context.Context, request interface{}) (interface{}, error) {
 		req := request.(kRequest)
-		ctl, err := svc.Hold(req.JobID, req.UserID)
+		ctl, err := svc.Hold(req.JobID, req.UserID, "", "")
 		if err != nil {
 			return *ctl, nil
 		}
@@ -515,7 +517,7 @@ func makeHoldEndpoint(svc Service) endpoint.Endpoint {
 func makeStartEndpoint(svc Service) endpoint.Endpoint {
 	return func(_ context.Context, request interface{}) (interface{}, error) {
 		req := request.(kRequest)
-		ctl, err := svc.Start(req.JobID, req.UserID)
+		ctl, err := svc.Start(req.JobID, req.UserID, "")
 		if err != nil {
 			return *ctl, nil
 		}
@@ -525,7 +527,7 @@ func makeStartEndpoint(svc Service) endpoint.Endpoint {
 func makeStopEndpoint(svc Service) endpoint.Endpoint {
 	return func(_ context.Context, request interface{}) (interface{}, error) {
 		req := request.(kRequest)
-		ctl, err := svc.Stop(req.JobID, req.UserID)
+		ctl, err := svc.Stop(req.JobID, req.UserID, "")
 		if err != nil {
 			return *ctl, nil
 		}
@@ -535,7 +537,7 @@ func makeStopEndpoint(svc Service) endpoint.Endpoint {
 func makeRestartEndpoint(svc Service) endpoint.Endpoint {
 	return func(_ context.Context, request interface{}) (interface{}, error) {
 		req := request.(kRequest)
-		ctl, err := svc.Restart(req.JobID, req.UserID)
+		ctl, err := svc.Restart(req.JobID, req.UserID, "")
 		if err != nil {
 			return *ctl, nil
 		}
