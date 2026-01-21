@@ -42,7 +42,7 @@ some user-defined specs, and a name.
 * Full API access for use *within* code if needed.
 * Granular permissioning at job level
 * Env variables
-* Magic DateEnv variables (e.g. CCYY-MM -> 20225-11)
+* Magic DateEnv variables (e.g. CCYY-MM -> 2025-11)
 * Timezones
 * Custom calendars 📅
 * One-second triggers 🕒
