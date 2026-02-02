@@ -1197,8 +1197,8 @@ func (job *Job) setJobState(s JState) error {
 				}
 			}
 		} else {
-			# in the case of MissedWarning jobs, never set them to be held
-			#job.setHold(true)
+			// in the case of MissedWarning jobs, never set them to be held
+		        //job.setHold(true)
 		}
 		job.addHistory()
 	case JHold:
@@ -1236,9 +1236,9 @@ func (job *Job) WaitForTrigger(stop <-chan bool) error {
 		case <-ticker.C:
 			now := time.Now().Unix()
 			if now-lastTick > 30 {
-				# Skip setting the job as missed here
-				# TODO: might want to add some logging here
-				#job.setJobState(JMissedWarning)
+				// Skip setting the job as missed here
+				// TODO: might want to add some logging here
+				//job.setJobState(JMissedWarning)
 				return nil
 			}
 			lastTick = now
