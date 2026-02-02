@@ -1198,7 +1198,7 @@ func (job *Job) setJobState(s JState) error {
 			}
 		} else {
 			// in the case of MissedWarning jobs, never set them to be held
-		        //job.setHold(true)
+			//job.setHold(true)
 		}
 		job.addHistory()
 	case JHold:
